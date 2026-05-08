@@ -36,3 +36,10 @@ __global__ void compute_norms(const float *d_vectors, float *d_norms, int N, int
         if (tid == 0) d_norms[vec_id] = res;
     }
 }
+
+void launch_compute_norms(const float *d_vectors, float *d_norms, int N, int D) {
+    if (N <= 0) return;
+    if (D <= 0) return;
+    constexpr int t_per_block = 256;
+    compute_norms<<N, t_per_block>>(d_vectors, d_norms, N, D);
+}
