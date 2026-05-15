@@ -2,7 +2,6 @@ use axum::{extract::State, Json};
 
 use crate::{
     api::response::{bad_request, ApiError, ApiResult},
-    engine::VectorEngine,
     models::{
         DeleteRequest, InsertRequest, MessageResponse, SearchRequest, SearchResponse,
     },

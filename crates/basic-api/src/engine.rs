@@ -4,6 +4,7 @@ pub trait VectorEngine {
     fn insert(&mut self, id: String, vector: Vec<f32>);
     fn search(&self, query: Vec<f32>, k: usize) -> Vec<SearchResult>;
     fn delete(&mut self, id: &str);
+    fn dimension(&self) -> Option<usize>;
 }
 
 #[derive(Default)]
@@ -14,10 +15,6 @@ pub struct FlatIndex {
 impl FlatIndex {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn dimension(&self) -> Option<usize> {
-        self.vectors.first().map(|(_, vector)| vector.len())
     }
 }
 
@@ -44,6 +41,10 @@ impl VectorEngine for FlatIndex {
 
     fn delete(&mut self, id: &str) {
         self.vectors.retain(|(stored_id, _)| stored_id != id);
+    }
+
+    fn dimension(&self) -> Option<usize> {
+        self.vectors.first().map(|(_, vector)| vector.len())
     }
 }
 
