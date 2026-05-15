@@ -2,7 +2,7 @@
 #include <math.h>
 #include <stdlib.h>
 
-__global__ void compute_sq_norms(const float *d_vectors, float *d_norms, int N, int D) {
+__global__ void compute_inv_norms(const float *d_vectors, float *d_norms, int N, int D) {
 
     int vec_id = blockIdx.x;
     int tid = threadIdx.x;
@@ -32,13 +32,13 @@ __global__ void compute_sq_norms(const float *d_vectors, float *d_norms, int N, 
         res += __shfl_down_sync(0xffffffff, res, 2);
         res += __shfl_down_sync(0xffffffff, res, 1);
 
-        if (tid == 0) d_norms[vec_id] = res;
+        if (tid == 0) d_norms[vec_id] = rsqrtf(res);
     }
 }
 
-void launch_compute_sq_norms(const float *d_vectors, float *d_norms, int N, int D) {
+void launch_compute_inv_norms(const float *d_vectors, float *d_norms, int N, int D) {
     if (N <= 0) return;
     if (D <= 0) return;
     constexpr int t_per_block = 256;
-    compute_sq_norms<<<N, t_per_block>>>(d_vectors, d_norms, N, D);
+    compute_inv_norms<<<N, t_per_block>>>(d_vectors, d_norms, N, D);
 }
