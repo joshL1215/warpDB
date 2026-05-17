@@ -1,6 +1,4 @@
-#include <cuda_runtime.h>
-#include <math.h>
-#include <stdlib.h>
+#include <kernels.h>
 
 __global__ void compute_inv_norms(const float *d_vectors, float *d_norms, int N, int D) {
 
