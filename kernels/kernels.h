@@ -3,13 +3,15 @@
 
 #include <cuda_runtime.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
 
 #endif
 
 // Compute inverse L2 norms
 void launch_compute_inv_norms(
     const float *d_vectors,
-    float *d_norms,
+    float *d_inverse_norms,
     int N,
     int D
 );
@@ -32,4 +34,4 @@ void launch_dot_product(
     int n_queries,
     int N,
     int D
-)
+);
