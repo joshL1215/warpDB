@@ -26,10 +26,10 @@ void launch_scale_rows(
 
 // Compute dot product between normalized vectors, resulting in cosine similarity
 // Tombstones tracks which vectors are marked deleted, to ignore in search
-void launch_dot_product(
+void launch_compute_dot_product(
     const float *d_queries,
     const float *d_vectors,
-    const uint8_t *tombstones,
+    const uint8_t *d_tombstones,
     float *d_similarities,
     int n_queries,
     int N,
