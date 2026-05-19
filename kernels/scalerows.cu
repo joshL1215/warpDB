@@ -3,9 +3,12 @@
 __global__ void scale_rows(float *d_vectors, const float *d_inverse_norms, int N, int D) {
     int tid = threadIdx.x;
     int vec_id = blockIdx.x;
+
+    int vec_idx = vec_id * D;
+
     float inv_norm = d_inverse_norms[vec_id];
     for (int t = tid; t < D; t += blockDim.x) {
-        d_vectors[vec_id * D + t] *= inv_norm;
+        d_vectors[vec_idx + t] *= inv_norm;
     }
 }
 

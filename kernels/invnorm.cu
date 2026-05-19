@@ -5,9 +5,11 @@ __global__ void compute_inv_norms(const float *d_vectors, float *d_inverse_norms
     int vec_id = blockIdx.x;
     int tid = threadIdx.x;
 
+    int vec_idx = vec_id * D;
+
     float partial = 0.0f;
     for (int t = tid; t < D; t += blockDim.x) {
-        float v = d_vectors[vec_id * D + t];
+        float v = d_vectors[vec_idx + t];
         partial += v * v;
     }
 
