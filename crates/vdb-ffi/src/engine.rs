@@ -73,10 +73,8 @@ impl FfiSearchResults {
     pub fn id_at(&self, index: usize) -> String {
         let id_ptr = unsafe { native_search_results_id_at(self.handle, index) };
 
-        unsafe { CStr::from_ptr(id_ptr) }
-            .to_str()
-            .expect("native search result ID must be valid")
-            .to_string()
+        unsafe { CStr::from_ptr(id_ptr) }.to_str().expect("native search result ID must be valid").to_string()
+        // first converting pointer to rust CStr, then rust string
     }
 
     pub fn score_at(&self, index: usize) -> f32 {
