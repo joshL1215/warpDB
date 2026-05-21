@@ -8,22 +8,6 @@
 
 #endif
 
-// Compute inverse L2 norms
-void launch_compute_inv_norms(
-    const float *d_vectors,
-    float *d_inverse_norms,
-    int N,
-    int D
-);
-
-// Scale each row by L2 inverse norm
-void launch_scale_rows(
-    float *d_vectors,
-    const float *d_inverse_norms,
-    int N,
-    int D
-);
-
 // Fused version of the two above
 void launch_l2_normalize(
     float *d_vectors,
