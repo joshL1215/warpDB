@@ -24,6 +24,13 @@ void launch_scale_rows(
     int D
 );
 
+// Fused version of the two above
+void launch_l2_normalize(
+    float *d_vectors,
+    int N,
+    int D
+);
+
 // Compute dot product between normalized vectors, resulting in cosine similarity
 // Tombstones tracks which vectors are marked deleted, to ignore in search
 // Top k is fused into this computation with WarpSelect style algorithm

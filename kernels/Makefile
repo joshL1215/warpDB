@@ -1,22 +1,18 @@
 NVCC = nvcc
 INCLUDES = -I.
 
-test_invnorm: tests/test_invnorm.cu invnorm.cu
-	$(NVCC) $(INCLUDES) $^ -o $@
-
-test_scalerows: tests/test_scalerows.cu scalerows.cu invnorm.cu
+test_l2norm: tests/test_l2norm.cu l2norm.cu
 	$(NVCC) $(INCLUDES) $^ -o $@
 
 test_dotprod: tests/test_dotprod.cu dotprod.cu
 	$(NVCC) $(INCLUDES) $^ -o $@
 
-test: test_invnorm test_scalerows test_dotprod
-	./test_invnorm
-	./test_scalerows
+test: test_l2norm test_dotprod
+	./test_l2norm
 	./test_dotprod
 
-bench: bench.cu invnorm.cu scalerows.cu dotprod.cu
+bench: bench.cu l2norm.cu dotprod.cu
 	$(NVCC) $(INCLUDES) -O3 $^ -o $@
 
 clean:
-	rm -f test_invnorm test_scalerows test_dotprod bench
+	rm -f test_l2norm test_dotprod bench
