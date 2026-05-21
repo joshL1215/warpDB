@@ -5,9 +5,12 @@ __global__ void compute_dot_product(
     const float *d_vectors,
     const uint8_t *d_tombstones,
     float *d_similarities,
+    float *d_top_k_values,
+    uint64_t *d_top_k_indices,
     int n_queries,
     int N,
-    int D
+    int D,
+    int k
 ) {
 
     int tid = threadIdx.x;
@@ -57,15 +60,19 @@ void launch_compute_dot_product(
     const float *d_vectors,
     const uint8_t *d_tombstones,
     float *d_similarities,
+    float *d_top_k_values,
+    uint64_t *d_top_k_indices,
     int n_queries,
     int N,
-    int D
+    int D,
+    int k
 ) {
     if (n_queries <= 0 || N <= 0 || D <= 0) return;
     dim3 grid(N, n_queries);
     compute_dot_product<<<grid, 256, 0>>>(
         d_queries, d_vectors,
         d_tombstones, d_similarities,
-        n_queries, N, D
+        d_top_k_values, d_top_k_indices,
+        n_queries, N, D, k
     );
 }
