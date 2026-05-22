@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use crate::engine::{FlatIndex, VectorEngine};
+use crate::engine::{FfiEngineAdapter, VectorEngine};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -10,7 +10,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            engine: Arc::new(Mutex::new(Box::new(FlatIndex::new()))),
+            engine: Arc::new(Mutex::new(Box::new(FfiEngineAdapter::new()))),
         }
     }
 }

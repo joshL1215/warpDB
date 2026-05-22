@@ -21,6 +21,10 @@ pub struct FfiSearchResults {
     handle: *mut NativeSearchResults,
 }
 
+// The wrapper owns the native handle and is always accessed behind higher-level
+// synchronization in the API layer.
+unsafe impl Send for FfiVectorEngine {}
+
 impl FfiVectorEngine {
     pub fn new() -> Self {
         let handle = unsafe { native_vector_engine_new() };
