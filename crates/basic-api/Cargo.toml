@@ -7,3 +7,4 @@ edition = "2021"
 axum = "0.8"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
+vdb-ffi = { path = "../vdb-ffi" }
