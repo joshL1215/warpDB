@@ -18,7 +18,7 @@ void launch_l2_normalize(
 // Compute dot product between normalized vectors, resulting in cosine similarity
 // Tombstones tracks which vectors are marked deleted, to ignore in search
 // Top k is fused into this computation with WarpSelect style algorithm
-void launch_compute_dot_product(
+void launch_cosine_search(
     const float *d_queries,
     const float *d_vectors,
     const uint8_t *d_tombstones,
