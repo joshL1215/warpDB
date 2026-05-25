@@ -1,5 +1,24 @@
 #include "vector_engine.h"
 
+namespace {
+    std::vector<float> l2normed_cpu(const float *vector, std::size_t len) {
+        float partial = 0.0f;
+        for (std::size_t i = 0; i < len; i++) {
+            float val = vector[i];
+            partial += val * val;
+        }
+        float norm = std::sqrt(partial);
+        std::vector<float> res(len);
+        if (norm == 0.0f) {
+            return res;
+        }
+        for (std::size_t i = 0; i < len; i++) {
+            res[i] = vector[i] / norm;
+        }
+        return res;
+    }
+}
+
 VectorEngine::VectorEngine()
     : vectors{}, dimension{768}, ids{}, id_map{},
     tombstones{}, delete_count{}, compaction_limit{25} {
@@ -16,13 +35,16 @@ void VectorEngine::insert(
     std::size_t len
 ) {
     if (len != dimension) return;
+
+    std::vector<float> normalized_vec = l2normed_cpu(vector, len);
+
     id_map.insert({id, ids.size()});
     ids.push_back(id);
     tombstones.push_back(0);
     vectors.insert(
         vectors.end(),
-        vector,
-        vector + len
+        normalized_vec.begin(),
+        normalized_vec.end()
     );
 }
 

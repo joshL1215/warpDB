@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <cmath>
 
 struct SearchResult {
     std::string id;
