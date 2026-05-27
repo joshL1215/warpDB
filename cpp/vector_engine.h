@@ -1,6 +1,7 @@
 #ifndef VECTOR_ENGINE_H
 #define VECTOR_ENGINE_H
 
+#include <cuda_runtime.h>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -29,6 +30,8 @@ private:
     std::uint8_t *d_tombstones = nullptr;
     std::size_t gpu_vec_cap;
     bool gpu_dirty = false;
+
+    void sync_to_gpu();
 
 public:
     VectorEngine();

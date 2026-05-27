@@ -23,7 +23,7 @@ namespace {
 }
 
 VectorEngine::VectorEngine()
-    : dimension{768}, compaction_limit{25}, gpu_vec_cap{5000} {
+    : dimension{768}, compaction_limit{25}, gpu_vec_cap{10240} {
 }
 // Dimensions is 768 only, can change or generalize later
 // but for simplicity we only allow 768 dim vectors at all
@@ -48,6 +48,7 @@ void VectorEngine::insert(
         normalized_vec.begin(),
         normalized_vec.end()
     );
+    gpu_dirty = true;
 }
 
 bool VectorEngine::erase(std::string id) {
@@ -61,13 +62,15 @@ bool VectorEngine::erase(std::string id) {
             }
         }
         delete_count = 0;
+        gpu_dirty = true;
     }
 
-    if (id_map.contains(id)) {
+    if (id_map.find(id) != id_map.end()) {
         int idx = id_map[id];
         tombstones[idx] = 1;
         id_map.erase(ids[idx]);
         delete_count++;
+        gpu_dirty = true;
         return true;
     }
 
@@ -80,4 +83,46 @@ std::vector<SearchResult> VectorEngine::search(
     std::size_t k
 ) {
     return {};
+}
+
+void VectorEngine::sync_to_gpu() {
+    if (!gpu_dirty) return;
+
+    std::size_t cpu_vec_count = ids.size();
+
+    if (cpu_vec_count == 0) {
+        gpu_dirty = false;
+        return;
+    }
+
+    // if no more room in gpu memory, allocate more
+    if (cpu_vec_count > gpu_vec_cap) {
+        if (d_vectors) cudaFree(d_vectors);
+        if (d_tombstones) cudaFree(d_tombstones);
+
+        gpu_vec_cap = std::max(cpu_vec_count, gpu_vec_cap * 2);
+
+        cudaMalloc((void**) &d_vectors, gpu_vec_cap * dimension * sizeof(float));
+        cudaMalloc((void**) &d_tombstones, gpu_vec_cap * sizeof(std::uint8_t));
+    }
+
+    cudaMemcpy(
+        d_vectors,
+        vectors.data(),
+        cpu_vec_count * dimension * sizeof(float),
+        cudaMemcpyHostToDevice
+    );
+
+    cudaMemcpy(
+        d_tombstones,
+        tombstones.data(),
+        cpu_vec_count * sizeof(std::uint8_t),
+        cudaMemcpyHostToDevice
+    );
+
+    gpu_dirty = false;
+}
+
+int main() {
+    return 0;
 }
