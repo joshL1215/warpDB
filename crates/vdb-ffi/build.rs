@@ -1,8 +1,19 @@
-use std::{env, path::PathBuf};
+use std::path::PathBuf;
 
 fn main() {
-    println!("cargo:rerun-if-changed=../../cpp/vector_engine_ffi.h");
+    // linking the compiled cpp files
+    let cpp_dir = PathBuf::from("../../cpp");
+    let mut native_build = cc::Build::new();
+    native_build
+        .cpp(true)
+        .std("c++17")
+        .include(&cpp_dir)
+        .file(cpp_dir.join("vector_engine.cpp"))
+        .file(cpp_dir.join("vector_engine_ffi.cpp"));
 
+    native_build.compile("vector_engine_native");
+
+    // generates rust declarations based of cpp ffi
     let bindings = bindgen::Builder::default()
         .header("../../cpp/vector_engine_ffi.h")
         .clang_arg("-xc++")
