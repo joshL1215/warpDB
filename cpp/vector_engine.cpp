@@ -7,11 +7,14 @@ namespace {
             float val = vector[i];
             partial += val * val;
         }
+
         float norm = std::sqrt(partial);
         std::vector<float> res(len);
+
         if (norm == 0.0f) {
             return res;
         }
+
         for (std::size_t i = 0; i < len; i++) {
             res[i] = vector[i] / norm;
         }
@@ -20,8 +23,7 @@ namespace {
 }
 
 VectorEngine::VectorEngine()
-    : vectors{}, dimension{768}, ids{}, id_map{},
-    tombstones{}, delete_count{}, compaction_limit{25} {
+    : dimension{768}, compaction_limit{25}, gpu_vec_cap{5000} {
 }
 // Dimensions is 768 only, can change or generalize later
 // but for simplicity we only allow 768 dim vectors at all
@@ -34,10 +36,10 @@ void VectorEngine::insert(
     const float *vector,
     std::size_t len
 ) {
+
     if (len != dimension) return;
 
     std::vector<float> normalized_vec = l2normed_cpu(vector, len);
-
     id_map.insert({id, ids.size()});
     ids.push_back(id);
     tombstones.push_back(0);
@@ -49,6 +51,8 @@ void VectorEngine::insert(
 }
 
 bool VectorEngine::erase(std::string id) {
+
+    // amortized compaction at checkpoints
     if (delete_count >= compaction_limit) {
         for (std::size_t i = 0; i < ids.size(); i++) {
             if (tombstones[i] == 1) {
@@ -75,6 +79,5 @@ std::vector<SearchResult> VectorEngine::search(
     std::size_t len,
     std::size_t k
 ) {
-    // TODO
     return {};
 }
