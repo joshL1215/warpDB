@@ -21,8 +21,7 @@ pub struct FfiSearchResults {
     handle: *mut NativeSearchResults,
 }
 
-// The wrapper owns the native handle and is always accessed behind higher-level
-// synchronization in the API layer.
+// Send is built into Rust as a trait, allows FfiVectorEngine to be moved between threads safely.
 unsafe impl Send for FfiVectorEngine {}
 
 impl FfiVectorEngine {
