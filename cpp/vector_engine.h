@@ -1,6 +1,7 @@
 #ifndef VECTOR_ENGINE_H
 #define VECTOR_ENGINE_H
 
+#include <cuda_runtime.h>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -22,8 +23,15 @@ private:
     std::unordered_map<std::string, std::size_t> id_map;
 
     std::vector<std::uint8_t> tombstones;
-    int delete_count;
+    int delete_count = 0;
     int compaction_limit;
+
+    float *d_vectors = nullptr;
+    std::uint8_t *d_tombstones = nullptr;
+    std::size_t gpu_vec_cap;
+    bool gpu_dirty = false;
+
+    void sync_to_gpu();
 
 public:
     VectorEngine();
