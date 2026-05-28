@@ -22,7 +22,6 @@ void launch_cosine_search(
     const float *d_queries,
     const float *d_vectors,
     const uint8_t *d_tombstones,
-    float *d_similarities,
     float *d_top_k_values,
     uint64_t *d_top_k_indices,
     int n_queries,
