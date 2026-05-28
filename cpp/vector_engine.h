@@ -2,6 +2,7 @@
 #define VECTOR_ENGINE_H
 
 #include <cuda_runtime.h>
+#include <kernels.h>
 #include <cstddef>
 #include <cstdint>
 #include <string>
