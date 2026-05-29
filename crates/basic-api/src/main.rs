@@ -1,6 +1,7 @@
 mod api;
 mod engine;
 mod models;
+mod service;
 mod state;
 
 use axum::{routing::{get, post}, Router};
