@@ -89,6 +89,27 @@ static void test_insert_then_delete_existing_id() {
     CHECK(!engine.erase("doc-1"));
 }
 
+static void test_search_returns_nearest_synthetic_vector() {
+    VectorEngine engine;
+
+    std::vector<float> doc_x = make_vector(0.0f);
+    std::vector<float> doc_y = make_vector(0.0f);
+    std::vector<float> query = make_vector(0.0f);
+
+    doc_x[0] = 1.0f;
+    doc_y[1] = 1.0f;
+    query[0] = 1.0f;
+
+    engine.insert("doc-x", doc_x.data(), doc_x.size());
+    engine.insert("doc-y", doc_y.data(), doc_y.size());
+
+    std::vector<SearchResult> results = engine.search(query.data(), query.size(), 1);
+
+    CHECK(results.size() == 1);
+    CHECK(results[0].id == "doc-x");
+    CHECK_CLOSE(results[0].score, 1.0f);
+}
+
 int main() {
     test_search_result_holds_id_and_score();
     test_new_engine_searches_empty();
@@ -96,6 +117,7 @@ int main() {
     test_insert_wrong_dimension_is_ignored();
     test_insert_stores_l2_normalized_vector();
     test_insert_then_delete_existing_id();
+    test_search_returns_nearest_synthetic_vector();
 
     std::cout << "All vector_engine tests passed\n";
     return 0;
