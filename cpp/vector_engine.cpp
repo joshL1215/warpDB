@@ -84,68 +84,64 @@ std::vector<SearchResult> VectorEngine::search(
 ) {
     sync_to_gpu();
 
-    if (len > dimension) return {};
+    if (ids.empty() || k == 0 || len != dimension) return {};
 
     // TODO: implement multi query batches, this is only single query
-    if (len == 1) {
+    std::size_t vec_count = ids.size();
 
-        std::size_t vec_count = ids.size();
+    float *d_query = nullptr;
+    float *d_top_k_values = nullptr;
+    std::uint64_t *d_top_k_indices = nullptr;
 
-        float *d_query = nullptr;
-        float *d_top_k_values = nullptr;
-        std::uint64_t *d_top_k_indices = nullptr;
+    cudaMalloc((void**) &d_query, vec_count * dimension * sizeof(float));
+    cudaMalloc((void**) &d_top_k_values, k * sizeof(float));
+    cudaMalloc((void**) &d_top_k_indices, k * sizeof(std::uint64_t));
 
-        cudaMalloc((void**) &d_query, vec_count * dimension * sizeof(float));
-        cudaMalloc((void**) &d_top_k_values, k * sizeof(float));
-        cudaMalloc((void**) &d_top_k_indices, k * sizeof(std::uint64_t));
+    std::vector<float> normed_query = l2normed_cpu(query, len);
+    cudaMemcpy(
+        d_query,
+        normed_query.data(),
+        dimension * sizeof(float),
+        cudaMemcpyHostToDevice
+    );
 
-        std::vector<float> normed_query = l2normed_cpu(query, len);
-        cudaMemcpy(
-            d_query,
-            normed_query.data(),
-            dimension * sizeof(float),
-            cudaMemcpyHostToDevice
-        );
+    launch_cosine_search(
+        d_query,
+        d_vectors,
+        d_tombstones,
+        d_top_k_values,
+        d_top_k_indices,
+        1,
+        vec_count,
+        len,
+        k
+    );
 
-        launch_cosine_search(
-            d_query,
-            d_vectors,
-            d_tombstones,
-            d_top_k_values,
-            d_top_k_indices,
-            len,
-            vec_count,
-            dimension,
-            k
-        );
+    std::vector<float> h_top_k_values(k);
+    std::vector<std::uint64_t> h_top_k_indices(k);
 
-        std::vector<float> h_top_k_values(k);
-        std::vector<std::uint64_t> h_top_k_indices(k);
+    cudaMemcpy(
+        h_top_k_values.data(),
+        d_top_k_values,
+        k * sizeof(float),
+        cudaMemcpyDeviceToHost
+    );
 
-        cudaMemcpy(
-            h_top_k_values.data(),
-            d_top_k_values,
-            k * sizeof(float),
-            cudaMemcpyDeviceToHost
-        );
+    cudaMemcpy(
+        h_top_k_indices.data(),
+        d_top_k_indices,
+        k * sizeof(std::uint64_t),
+        cudaMemcpyDeviceToHost
+    );
 
-        cudaMemcpy(
-            h_top_k_indices.data(),
-            d_top_k_indices,
-            k * sizeof(std::uint64_t),
-            cudaMemcpyDeviceToHost
-        );
-
-        std::vector<SearchResult> k_results(k);
-        for (std::size_t i = 0; i < k; i++) {
-            std::size_t vec_idx = h_top_k_indices[i];
-            SearchResult result = {ids[vec_idx], h_top_k_values[i]};
-            k_results[i] = result;
-        }
-
-        return k_results;
+    std::vector<SearchResult> k_results(k);
+    for (std::size_t i = 0; i < k; i++) {
+        std::size_t vec_idx = h_top_k_indices[i];
+        SearchResult result = {ids[vec_idx], h_top_k_values[i]};
+        k_results[i] = result;
     }
-    return {};
+
+    return k_results;
 }
 
 void VectorEngine::sync_to_gpu() {
