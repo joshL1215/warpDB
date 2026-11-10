@@ -5,6 +5,7 @@
 
 struct NativeVectorEngine;
 struct NativeSearchResults;
+struct NativeBatchSearchResults;
 
 extern "C" {
 
@@ -21,6 +22,14 @@ extern "C" {
     const char* native_search_results_id_at(const NativeSearchResults* results, size_t index);
     float native_search_results_score_at(const NativeSearchResults* results, size_t index);
     void native_search_results_free(NativeSearchResults* results);
+
+    // batched search: queries is row-major [n_queries x len]
+    NativeBatchSearchResults* native_vector_engine_search_batch(NativeVectorEngine* engine, const float* queries, size_t n_queries, size_t len, size_t k);
+    size_t native_batch_search_results_num_queries(const NativeBatchSearchResults* results);
+    size_t native_batch_search_results_len(const NativeBatchSearchResults* results, size_t query_index);
+    const char* native_batch_search_results_id_at(const NativeBatchSearchResults* results, size_t query_index, size_t index);
+    float native_batch_search_results_score_at(const NativeBatchSearchResults* results, size_t query_index, size_t index);
+    void native_batch_search_results_free(NativeBatchSearchResults* results);
 
 }
 

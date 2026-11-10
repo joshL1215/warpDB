@@ -2,7 +2,10 @@ use axum::{extract::State, Json};
 
 use crate::{
     api::response::ApiResult,
-    models::{DeleteRequest, InsertRequest, MessageResponse, SearchRequest, SearchResponse},
+    models::{
+        BatchSearchRequest, BatchSearchResponse, DeleteRequest, InsertRequest, MessageResponse,
+        SearchRequest, SearchResponse,
+    },
     service::VectorService,
 };
 
@@ -16,6 +19,10 @@ pub async fn insert(State(service): State<VectorService>, Json(request): Json<In
 
 pub async fn search(State(service): State<VectorService>, Json(request): Json<SearchRequest>) -> ApiResult<SearchResponse> {
     Ok(Json(service.search(request.query, request.k)?))
+}
+
+pub async fn search_batch(State(service): State<VectorService>, Json(request): Json<BatchSearchRequest>) -> ApiResult<BatchSearchResponse> {
+    Ok(Json(service.search_batch(request.queries, request.k)?))
 }
 
 pub async fn delete_vector(State(service): State<VectorService>, Json(request): Json<DeleteRequest>) -> ApiResult<MessageResponse> {

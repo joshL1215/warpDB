@@ -21,6 +21,7 @@ fn main() {
         .clang_arg("-I../../cpp")
         .allowlist_type("NativeVectorEngine")
         .allowlist_type("NativeSearchResults")
+        .allowlist_type("NativeBatchSearchResults")
         .allowlist_function("native_.*")
         .layout_tests(false)
         .generate()

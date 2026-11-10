@@ -1,8 +1,11 @@
 use crate::{
     api::response::{bad_request, ApiError},
-    models::{MessageResponse, SearchResponse},
+    models::{BatchSearchResponse, MessageResponse, SearchResponse},
     state::AppState,
 };
+
+/// Upper bound on queries per batch request, to cap per-request GPU allocation and lock time.
+const MAX_BATCH_SIZE: usize = 1024;
 
 #[derive(Clone)]
 pub struct VectorService {
@@ -39,6 +42,34 @@ impl VectorService {
 
         let results = engine.search(query, k);
         Ok(SearchResponse { results })
+    }
+
+    pub fn search_batch(&self, queries: Vec<Vec<f32>>, k: usize) -> Result<BatchSearchResponse, ApiError> {
+        self.validate_k(k)?;
+
+        if queries.is_empty() {
+            return Err(bad_request("queries must not be empty"));
+        }
+
+        if queries.len() > MAX_BATCH_SIZE {
+            return Err(bad_request(&format!("batch size must not exceed {MAX_BATCH_SIZE} queries")));
+        }
+
+        for query in &queries {
+            self.validate_vector(query)?;
+        }
+
+        let query_dimension = queries[0].len();
+        if queries.iter().any(|query| query.len() != query_dimension) {
+            return Err(bad_request("all queries in a batch must have the same dimension"));
+        }
+
+        let engine = self.state.engine.lock().expect("engine lock failed");
+
+        self.validate_dimension(engine.dimension(), query_dimension, "query dimension does not match stored vectors")?;
+
+        let results = engine.search_batch(queries, k);
+        Ok(BatchSearchResponse { results })
     }
 
     pub fn delete(&self, id: &str) -> Result<MessageResponse, ApiError> {

@@ -84,6 +84,17 @@ flowchart TD
 Duplicate insertion appends another row while preserving the original ID mapping, so deleting that ID tombstones only the mapped row. 
 
 
+### Batched search
+
+`POST /search/batch` runs many queries in one GPU launch (one thread block per query over the same device-resident vectors):
+
+```json
+{ "queries": [[0.1, 0.2, ...], [0.3, 0.4, ...]], "k": 5 }
+```
+
+The response's `results[i]` holds the matches for `queries[i]`. All queries must share the stored dimension, a batch holds at most 1024 queries, and `k` is capped at 32 per query (the kernel's warp-sized top-k). Fewer results come back when there are fewer than `k` live vectors.
+
+
 ## Development layout
 
 `basic-api` depends on `vdb-ffi` by path. The FFI build script uses `cc` to compile C++ and `bindgen` to generate Rust declarations from `vector_engine_ffi.h`.

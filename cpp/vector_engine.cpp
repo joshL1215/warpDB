@@ -1,5 +1,7 @@
 #include "vector_engine.h"
 
+#include <algorithm>
+
 namespace {
     std::vector<float> l2normed_cpu(const float *vector, std::size_t len) {
         float partial = 0.0f;
@@ -82,66 +84,115 @@ std::vector<SearchResult> VectorEngine::search(
     std::size_t len,
     std::size_t k
 ) {
+    std::vector<std::vector<SearchResult>> batch = search_batch(query, 1, len, k);
+    if (batch.empty()) return {};
+    return std::move(batch[0]);
+}
+
+std::vector<std::vector<SearchResult>> VectorEngine::search_batch(
+    const float *queries,
+    std::size_t n_queries,
+    std::size_t len,
+    std::size_t k
+) {
     sync_to_gpu();
 
-    if (ids.empty() || k == 0 || len != dimension) return {};
+    // always one (possibly empty) result list per query so callers can index by query
+    std::vector<std::vector<SearchResult>> batch_results(n_queries);
 
-    // TODO: implement multi query batches, this is only single query
+    if (queries == nullptr || n_queries == 0 || ids.empty() || k == 0 || len != dimension) {
+        return batch_results;
+    }
+
+    // the kernel keeps its top-k list in a single warp, so it can return at most MAX_K
+    // per query. Clamp here so the host and kernel agree on the output row stride.
+    k = std::min(k, MAX_K);
+
     std::size_t vec_count = ids.size();
 
-    float *d_query = nullptr;
+    // normalize every query on CPU and pack them row-major: [n_queries x dimension]
+    std::vector<float> normed_queries(n_queries * dimension);
+    for (std::size_t q = 0; q < n_queries; q++) {
+        std::vector<float> normed = l2normed_cpu(queries + q * dimension, dimension);
+        std::copy(normed.begin(), normed.end(), normed_queries.begin() + q * dimension);
+    }
+
+    float *d_queries = nullptr;
     float *d_top_k_values = nullptr;
     std::uint64_t *d_top_k_indices = nullptr;
 
-    cudaMalloc((void**) &d_query, vec_count * dimension * sizeof(float));
-    cudaMalloc((void**) &d_top_k_values, k * sizeof(float));
-    cudaMalloc((void**) &d_top_k_indices, k * sizeof(std::uint64_t));
+    auto free_device = [&]() {
+        if (d_queries) cudaFree(d_queries);
+        if (d_top_k_values) cudaFree(d_top_k_values);
+        if (d_top_k_indices) cudaFree(d_top_k_indices);
+    };
 
-    std::vector<float> normed_query = l2normed_cpu(query, len);
+    if (cudaMalloc((void**) &d_queries, n_queries * dimension * sizeof(float)) != cudaSuccess ||
+        cudaMalloc((void**) &d_top_k_values, n_queries * k * sizeof(float)) != cudaSuccess ||
+        cudaMalloc((void**) &d_top_k_indices, n_queries * k * sizeof(std::uint64_t)) != cudaSuccess) {
+        free_device();
+        return batch_results;
+    }
+
     cudaMemcpy(
-        d_query,
-        normed_query.data(),
-        dimension * sizeof(float),
+        d_queries,
+        normed_queries.data(),
+        n_queries * dimension * sizeof(float),
         cudaMemcpyHostToDevice
     );
 
+    // one block per query, all queries scan the same device-resident vectors
     launch_cosine_search(
-        d_query,
+        d_queries,
         d_vectors,
         d_tombstones,
         d_top_k_values,
         d_top_k_indices,
-        1,
-        vec_count,
-        len,
-        k
+        static_cast<int>(n_queries),
+        static_cast<int>(vec_count),
+        static_cast<int>(dimension),
+        static_cast<int>(k)
     );
 
-    std::vector<float> h_top_k_values(k);
-    std::vector<std::uint64_t> h_top_k_indices(k);
+    std::vector<float> h_top_k_values(n_queries * k);
+    std::vector<std::uint64_t> h_top_k_indices(n_queries * k);
 
-    cudaMemcpy(
+    cudaError_t values_err = cudaMemcpy(
         h_top_k_values.data(),
         d_top_k_values,
-        k * sizeof(float),
+        n_queries * k * sizeof(float),
         cudaMemcpyDeviceToHost
     );
 
-    cudaMemcpy(
+    cudaError_t indices_err = cudaMemcpy(
         h_top_k_indices.data(),
         d_top_k_indices,
-        k * sizeof(std::uint64_t),
+        n_queries * k * sizeof(std::uint64_t),
         cudaMemcpyDeviceToHost
     );
 
-    std::vector<SearchResult> k_results(k);
-    for (std::size_t i = 0; i < k; i++) {
-        std::size_t vec_idx = h_top_k_indices[i];
-        SearchResult result = {ids[vec_idx], h_top_k_values[i]};
-        k_results[i] = result;
+    free_device();
+
+    if (values_err != cudaSuccess || indices_err != cudaSuccess) {
+        return batch_results;
     }
 
-    return k_results;
+    for (std::size_t q = 0; q < n_queries; q++) {
+        std::vector<SearchResult> &results = batch_results[q];
+        results.reserve(k);
+
+        for (std::size_t i = 0; i < k; i++) {
+            std::uint64_t vec_idx = h_top_k_indices[q * k + i];
+            float score = h_top_k_values[q * k + i];
+
+            // empty slots: fewer live vectors than k leaves the kernel's sentinel index / -inf score
+            if (vec_idx >= vec_count || tombstones[vec_idx] || std::isinf(score)) continue;
+
+            results.push_back({ids[vec_idx], score});
+        }
+    }
+
+    return batch_results;
 }
 
 void VectorEngine::sync_to_gpu() {

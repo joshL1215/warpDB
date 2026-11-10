@@ -17,6 +17,7 @@ async fn main() {
         .route("/health", get(handlers::health))
         .route("/insert", post(handlers::insert))
         .route("/search", post(handlers::search))
+        .route("/search/batch", post(handlers::search_batch))
         .route("/delete", post(handlers::delete_vector))
         .with_state(service);
 
