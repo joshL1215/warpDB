@@ -46,8 +46,20 @@ public:
 
     bool erase(std::string id);
 
+    // max results per query; must match K_MAX in kernels/cosine_search.cu
+    static constexpr std::size_t MAX_K = 32;
+
     std::vector<SearchResult> search(
         const float *query,
+        std::size_t len,
+        std::size_t k
+    );
+
+    // queries is row-major [n_queries x len]; returns one result list per query,
+    // in the same order as the input (empty lists if the batch could not run)
+    std::vector<std::vector<SearchResult>> search_batch(
+        const float *queries,
+        std::size_t n_queries,
         std::size_t len,
         std::size_t k
     );

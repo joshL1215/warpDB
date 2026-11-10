@@ -97,7 +97,7 @@ __global__ void cosine_search(
                     t_val = prev_val;
                 } else if (lane == insert_pos) {
                     t_key = sim;
-                    t_val = (uint8_t)i;
+                    t_val = (uint64_t)i;
                 }
             }
             thresh = __shfl_sync(0xffffffff, t_key, 31);

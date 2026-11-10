@@ -13,6 +13,12 @@ pub struct SearchRequest {
 }
 
 #[derive(Deserialize)]
+pub struct BatchSearchRequest {
+    pub queries: Vec<Vec<f32>>,
+    pub k: usize,
+}
+
+#[derive(Deserialize)]
 pub struct DeleteRequest {
     pub id: String,
 }
@@ -26,6 +32,12 @@ pub struct SearchResult {
 #[derive(Serialize)]
 pub struct SearchResponse {
     pub results: Vec<SearchResult>,
+}
+
+#[derive(Serialize)]
+pub struct BatchSearchResponse {
+    /// results[i] holds the matches for queries[i]
+    pub results: Vec<Vec<SearchResult>>,
 }
 
 #[derive(Serialize)]

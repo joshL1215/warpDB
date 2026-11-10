@@ -6,6 +6,8 @@ use vdb_ffi::FfiVectorEngine;
 pub trait VectorEngine {
     fn insert(&mut self, id: String, vector: Vec<f32>);
     fn search(&self, query: Vec<f32>, k: usize) -> Vec<SearchResult>;
+    /// All queries must share one dimension. Returns one result list per query, in input order.
+    fn search_batch(&self, queries: Vec<Vec<f32>>, k: usize) -> Vec<Vec<SearchResult>>;
     fn delete(&mut self, id: &str);
     fn dimension(&self) -> Option<usize>;
 }
@@ -44,6 +46,30 @@ impl VectorEngine for FfiEngineAdapter {
                 score: results.score_at(index),
             })
             .collect()  // return vector of SearchResults
+    }
+
+    fn search_batch(&self, queries: Vec<Vec<f32>>, k: usize) -> Vec<Vec<SearchResult>> {
+        let n_queries = queries.len();
+        if n_queries == 0 {
+            return Vec::new();
+        }
+
+        // pack into one contiguous row-major buffer so the GPU gets a single upload
+        let dimension = queries[0].len();
+        let flat: Vec<f32> = queries.into_iter().flatten().collect();
+
+        let results = self.engine.search_batch(&flat, n_queries, dimension, k);
+
+        (0..results.num_queries())
+            .map(|q| {
+                (0..results.len(q))
+                    .map(|i| SearchResult {
+                        id: results.id_at(q, i),
+                        score: results.score_at(q, i),
+                    })
+                    .collect()
+            })
+            .collect()
     }
 
     fn delete(&mut self, id: &str) {
