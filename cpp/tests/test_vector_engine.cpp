@@ -161,6 +161,34 @@ static void test_search_batch_skips_empty_slots_when_k_exceeds_live_vectors() {
     CHECK(batch[1].size() == 1 && batch[1][0].id == "doc-x"); // doc-y is tombstoned
 }
 
+// more queries than one kernel block handles (8), and more stored vectors than fit in a uint8 index
+static void test_search_batch_large_batch_across_blocks() {
+    VectorEngine engine;
+    const std::size_t n_docs = 300;
+    const std::size_t n_queries = 20;
+
+    for (std::size_t i = 0; i < n_docs; i++) {
+        std::vector<float> doc = make_vector(0.0f);
+        doc[i % 768] = 1.0f;
+        engine.insert("doc-" + std::to_string(i), doc.data(), doc.size());
+    }
+
+    // query q targets doc 280 + q, so every match index is > 255
+    std::vector<float> queries(n_queries * 768, 0.0f);
+    for (std::size_t q = 0; q < n_queries; q++) {
+        queries[q * 768 + (280 + q)] = 1.0f;
+    }
+
+    auto batch = engine.search_batch(queries.data(), n_queries, 768, 1);
+
+    CHECK(batch.size() == n_queries);
+    for (std::size_t q = 0; q < n_queries; q++) {
+        CHECK(batch[q].size() == 1);
+        CHECK(batch[q][0].id == "doc-" + std::to_string(280 + q));
+        CHECK_CLOSE(batch[q][0].score, 1.0f);
+    }
+}
+
 static void test_search_batch_wrong_dimension_returns_empty_lists() {
     VectorEngine engine;
     std::vector<float> doc = make_vector(1.0f);
@@ -183,6 +211,7 @@ int main() {
     test_search_returns_nearest_synthetic_vector();
     test_search_batch_returns_per_query_results_in_order();
     test_search_batch_skips_empty_slots_when_k_exceeds_live_vectors();
+    test_search_batch_large_batch_across_blocks();
     test_search_batch_wrong_dimension_returns_empty_lists();
 
     std::cout << "All vector_engine tests passed\n";

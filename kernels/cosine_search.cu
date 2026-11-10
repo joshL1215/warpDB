@@ -2,30 +2,66 @@
 
 constexpr int THREADS_PER_BLOCK = 256;
 constexpr int WARP_SIZE = 32;
+constexpr int NUM_WARPS = THREADS_PER_BLOCK / WARP_SIZE; // 8
 constexpr int K_MAX = 32;
+constexpr unsigned FULL_MASK = 0xffffffff;
 
-__device__ inline float block_reduce_sum(float val, float* sdata) {
-    int tid = threadIdx.x;
-    sdata[tid] = val;
-    __syncthreads();
+// Batch-aware layout:
+//   - each block handles QUERIES_PER_BLOCK queries (one per warp)
+//   - every stored vector is read from global memory ONCE per block and scored
+//     against all of the block's queries, so a batch of B queries reads the
+//     dataset ceil(B / QUERIES_PER_BLOCK) times instead of B times
+//   - stored vectors are processed VECS_PER_TILE at a time to amortize the
+//     block-wide reduction and __syncthreads() cost
+//   - warp w owns the WarpSelect top-k list for query w of the block
+constexpr int QUERIES_PER_BLOCK = NUM_WARPS;
+constexpr int VECS_PER_TILE = 4;
 
-    for (int s = blockDim.x / 2; s > 16; s >>= 1) {
-        if (tid < s) {
-            sdata[tid] += sdata[s + tid];
+// NOTE: queries live in static shared memory, so the kernel only supports D <= D_MAX.
+// 8 queries x 768 floats = 24KB; if any dimensionality is allowed this must become dynamic.
+constexpr int D_MAX = 768;
+
+static_assert(VECS_PER_TILE <= WARP_SIZE, "one lane per tile vector is used when gathering sims");
+static_assert(QUERIES_PER_BLOCK == NUM_WARPS, "each warp owns exactly one query's top-k list");
+
+__device__ inline float warp_reduce_sum(float val) {
+    val += __shfl_down_sync(FULL_MASK, val, 16);
+    val += __shfl_down_sync(FULL_MASK, val, 8);
+    val += __shfl_down_sync(FULL_MASK, val, 4);
+    val += __shfl_down_sync(FULL_MASK, val, 2);
+    val += __shfl_down_sync(FULL_MASK, val, 1);
+    return val;
+}
+
+// WarpSelect insert: the warp holds a descending top-32 list, one entry per lane.
+// sim must be warp-uniform (every lane passes the same value).
+__device__ inline void warp_select_insert(
+    float sim,
+    uint64_t idx,
+    float &t_key,
+    uint64_t &t_val,
+    float &thresh,
+    int lane
+) {
+    if (!(sim > thresh)) return;
+
+    unsigned int ballot = __ballot_sync(FULL_MASK, sim > t_key);
+    if (ballot) {
+        int insert_pos = __ffs(ballot) - 1;
+        int prev_pos = max(0, lane - 1);
+
+        float prev_key = __shfl_sync(FULL_MASK, t_key, prev_pos);
+        uint64_t prev_val = __shfl_sync(FULL_MASK, t_val, prev_pos);
+
+        if (lane > insert_pos) {
+            t_key = prev_key;
+            t_val = prev_val;
+        } else if (lane == insert_pos) {
+            t_key = sim;
+            t_val = idx;
         }
-        __syncthreads();
     }
-
-    if (tid < 32) {
-        float res = sdata[tid];
-        res += __shfl_down_sync(0xffffffff, res, 16);
-        res += __shfl_down_sync(0xffffffff, res, 8);
-        res += __shfl_down_sync(0xffffffff, res, 4);
-        res += __shfl_down_sync(0xffffffff, res, 2);
-        res += __shfl_down_sync(0xffffffff, res, 1);
-        return res;
-    }
-    return 0.0f;
+    thresh = __shfl_sync(FULL_MASK, t_key, WARP_SIZE - 1);
 }
 
 __global__ void cosine_search(
@@ -34,80 +70,110 @@ __global__ void cosine_search(
     const uint8_t *d_tombstones,
     uint64_t *d_out_indices,
     float *d_out_values,
+    int n_queries,
     int N,
     int D,
     int k
 ) {
-    int query_id = blockIdx.x;
     int tid = threadIdx.x;
-
     int lane = tid & 31; // equivalent to tid % 32
-    int warp = tid >> 5; // on 256 threads, there are 8 warps, so >> 5 AKA div 32 marks what warp we're in
+    int warp = tid >> 5; // equivalent to tid / 32
 
-    // NOTE: this makes this kernel only compatible with 768 dim embeddings, though D is still passed in case we generalize later
-    // if any dimensionality allowed we need to change shared mem allocation to dynamic
-    __shared__ float s_query[768];
-    __shared__ float s_reduce[256];
-    __shared__ float s_sim;
+    int query_base = blockIdx.x * QUERIES_PER_BLOCK;
+    int n_local = min(QUERIES_PER_BLOCK, n_queries - query_base);
 
-    for (int t = tid; t < D; t += blockDim.x) {
-        s_query[t] = d_queries[query_id * D + t];
+    __shared__ float s_queries[QUERIES_PER_BLOCK][D_MAX];
+    // per-warp partial dot products: [warp][query][tile vector]
+    __shared__ float s_partial[NUM_WARPS][QUERIES_PER_BLOCK][VECS_PER_TILE];
+
+    // load this block's queries; pad missing queries (last block) with zeros
+    for (int q = 0; q < QUERIES_PER_BLOCK; q++) {
+        for (int t = tid; t < D; t += blockDim.x) {
+            s_queries[q][t] = (q < n_local)
+                ? d_queries[(size_t)(query_base + q) * D + t]
+                : 0.0f;
+        }
     }
     __syncthreads();
 
+    // top-k state for query `warp` of this block
     float t_key = -INFINITY;
     uint64_t t_val = (uint64_t)-1;
     float thresh = -INFINITY;
 
-    for (int i = 0; i < N; i++) {
+    for (int tile_base = 0; tile_base < N; tile_base += VECS_PER_TILE) {
 
-        bool dead = d_tombstones[i];
-        float sim;
-        if (!dead) {
-
-            float partial = 0.0f;
-            for (int t = tid; t < D; t += blockDim.x) {
-                partial += s_query[t] * d_vectors[i * D + t];
-            }
-            float block_sum = block_reduce_sum(partial, s_reduce);
-
-            // Sharing the computed similarity across each thread
-            if (tid == 0) {
-                s_sim = block_sum;
-            }
-            __syncthreads();
-            sim = s_sim;
-
-        } else {
-            sim = -INFINITY;
+        // tombstones / tail are checked once per tile so dead vectors are never loaded
+        bool alive[VECS_PER_TILE];
+        #pragma unroll
+        for (int j = 0; j < VECS_PER_TILE; j++) {
+            int i = tile_base + j;
+            alive[j] = (i < N) && !d_tombstones[i];
         }
 
-        // WarpSelect
-        if (warp == 0 && sim > thresh) {
-            unsigned int ballot = __ballot_sync(0xffffffff, sim > t_key);
-            if (ballot) {
-                int insert_pos = __ffs(ballot) - 1;
-                int prev_pos = max(0, lane - 1);
+        float acc[QUERIES_PER_BLOCK][VECS_PER_TILE];
+        #pragma unroll
+        for (int q = 0; q < QUERIES_PER_BLOCK; q++) {
+            #pragma unroll
+            for (int j = 0; j < VECS_PER_TILE; j++) acc[q][j] = 0.0f;
+        }
 
-                float prev_key = __shfl_sync(0xffffffff, t_key, prev_pos);
-                uint64_t prev_val = __shfl_sync(0xffffffff, t_val, prev_pos);
+        // each stored element is loaded once (coalesced across the block)
+        // and reused for every query in the block
+        for (int t = tid; t < D; t += blockDim.x) {
+            float v[VECS_PER_TILE];
+            #pragma unroll
+            for (int j = 0; j < VECS_PER_TILE; j++) {
+                v[j] = alive[j] ? d_vectors[(size_t)(tile_base + j) * D + t] : 0.0f;
+            }
 
-                if (lane > insert_pos) {
-                    t_key = prev_key;
-                    t_val = prev_val;
-                } else if (lane == insert_pos) {
-                    t_key = sim;
-                    t_val = (uint64_t)i;
+            #pragma unroll
+            for (int q = 0; q < QUERIES_PER_BLOCK; q++) {
+                float qv = s_queries[q][t];
+                #pragma unroll
+                for (int j = 0; j < VECS_PER_TILE; j++) {
+                    acc[q][j] += qv * v[j];
                 }
             }
-            thresh = __shfl_sync(0xffffffff, t_key, 31);
+        }
+
+        // reduce within each warp, stash one partial per warp
+        #pragma unroll
+        for (int q = 0; q < QUERIES_PER_BLOCK; q++) {
+            #pragma unroll
+            for (int j = 0; j < VECS_PER_TILE; j++) {
+                float sum = warp_reduce_sum(acc[q][j]);
+                if (lane == 0) s_partial[warp][q][j] = sum;
+            }
         }
         __syncthreads();
+
+        // warp `warp` finishes the reduction for its own query and runs WarpSelect.
+        // warp-uniform branch, so the full-mask shuffles inside are safe.
+        if (warp < n_local) {
+            // lane j (< VECS_PER_TILE) sums the cross-warp partials for tile vector j
+            float my_sim = 0.0f;
+            if (lane < VECS_PER_TILE) {
+                #pragma unroll
+                for (int w = 0; w < NUM_WARPS; w++) {
+                    my_sim += s_partial[w][warp][lane];
+                }
+            }
+
+            #pragma unroll
+            for (int j = 0; j < VECS_PER_TILE; j++) {
+                float sim = __shfl_sync(FULL_MASK, my_sim, j);
+                if (!alive[j]) sim = -INFINITY;
+                warp_select_insert(sim, (uint64_t)(tile_base + j), t_key, t_val, thresh, lane);
+            }
+        }
+        __syncthreads(); // s_partial is overwritten next tile
     }
 
-    if (warp == 0 && lane < k) {
-        d_out_indices[query_id * k + lane] = t_val;
-        d_out_values[query_id * k + lane] = t_key;
+    if (warp < n_local && lane < k) {
+        size_t out = (size_t)(query_base + warp) * k + lane;
+        d_out_indices[out] = t_val;
+        d_out_values[out] = t_key;
     }
 }
 
@@ -123,12 +189,13 @@ void launch_cosine_search(
     int k
 ) {
     if (n_queries <= 0 || N <= 0 || D <= 0 || k <= 0) return;
+    if (D > D_MAX) return;
     if (k > K_MAX) k = K_MAX;
 
-    dim3 grid(n_queries);
+    dim3 grid((n_queries + QUERIES_PER_BLOCK - 1) / QUERIES_PER_BLOCK);
     cosine_search<<<grid, THREADS_PER_BLOCK>>>(
         d_queries, d_vectors, d_tombstones,
         d_out_indices, d_out_values,
-        N, D, k
+        n_queries, N, D, k
     );
 }
